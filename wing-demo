@@ -1,0 +1,4 @@
+#!/bin/sh
+# Starts Wing Demo using the system Python, where install.sh put its libraries.
+# -s ignores packages in ~/.local, which might not match the system's matplotlib.
+exec /usr/bin/python3 -s "$(dirname "$(readlink -f "$0")")/app/main.py" "$@"
