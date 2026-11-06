@@ -64,6 +64,6 @@ make -C solver
 
 Extracted from [Wee Archie](https://github.com/EPCCed/wee_archie), the EPCC outreach supercomputer. The original demo framework was written by Gordon Gibb and Alistair Grant, the CFD demo by Gordon Gibb and the artwork by Mirren White. Kara Moraw added enhancements under a PRACE Summer of HPC 2017 visit.
 
-Licensed under the BSD 3-Clause licence: see `LICENSE`, and `LICENSE-EPCC` for the licence of the original code.
+Licensed under the licence of the original code: see `LICENSE`.
 
 The RISC-V logo on the take-off screen is a trademark of RISC-V International.
