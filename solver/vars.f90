@@ -8,16 +8,18 @@ implicit none
     !grid parameters
 
     !number of cells in x and y direction
-    integer, parameter :: nx = 576
-    integer, parameter :: ny = 576
+    integer :: nx = 576
+    integer :: ny = 576
+
+    !number of iterations used to solve for the initial potential flow
+    integer :: iterations = 5000
 
     !size of windtunnel in metres
     real, parameter :: xrange(2) = (/ -2., 2. /)
     real, parameter :: yrange(2) = (/ -2., 2. /)
 
     !grid spacing in "real" units
-    real :: dxx = (xrange(2)-xrange(1))/(real(nx)-1)
-    real :: dyy = (yrange(2)-yrange(1))/(real(ny)-1)
+    real :: dxx, dyy
 
     !grid spacing in computational units
     real :: dx=1.
@@ -80,6 +82,7 @@ implicit none
     real :: p=0.4 !location of maximum camber (fraction of length along chord)
 
     !define namelists for reading in config files
+    NAMELIST /gridparams/ nx, ny, iterations
     NAMELIST /vortparams/ vorticity,maxvort,r0,vortcoeff
     NAMELIST /mediumparams/  p0,rho,airspeed
     NAMELIST /shapeparams/ shape, alpha, a, b, c, m, t, p

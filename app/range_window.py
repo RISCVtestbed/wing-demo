@@ -6,7 +6,17 @@ from pathlib import Path
 import matplotlib.image
 import numpy as np
 
-from flight import MAP_HEIGHT, MAP_WIDTH, EARTH_RADIUS, flight_range, map_angles
+from flight import (
+    EARTH_RADIUS,
+    FULL_THROTTLE_HOURS,
+    MAP_HEIGHT,
+    MAP_WIDTH,
+    RUNWAY_LENGTH,
+    flight_range,
+    map_angles,
+    rounded_runway,
+    runway_needed,
+)
 
 ASSETS = Path(__file__).resolve().parent / "assets"
 
@@ -23,6 +33,7 @@ BAND_REVEALS = {124.5: 1, 100: 2, 75: 3, 50: 4, 25: 5, 0: 6, -25: 7, -50: 8, -75
 
 FUEL_CENTRE = (115, 315)
 FUEL_NEEDLE_LENGTH = 60
+BOTTOM_MARGIN = 80  # room for a title bar and desktop panel
 
 
 class RangeWindow(tk.Toplevel):
@@ -32,10 +43,15 @@ class RangeWindow(tk.Toplevel):
         self.transient(parent)
         self.resizable(False, False)
         self.protocol("WM_DELETE_WINDOW", self.close)
+        # Bottom right of the screen, keeping clear of the take-off result
+        left = max(0, self.winfo_screenwidth() - MAP_WIDTH)
+        top = max(0, self.winfo_screenheight() - MAP_HEIGHT - BOTTOM_MARGIN)
+        self.geometry(f"+{left}+{top}")
         self.timers = timers
         self.on_close = on_close
 
         self.result = flight_range(c_lift, c_drag)
+        self.runway = runway_needed(c_lift, c_drag)
         log(f"    Cruise Speed = {self.result.speed_kmph} km/h")
         log(f"    Range = {self.result.km} km ")
 
@@ -51,24 +67,34 @@ class RangeWindow(tk.Toplevel):
         self.needle = self.canvas.create_line(*FUEL_CENTRE, *FUEL_CENTRE, fill="red", width=2)
         self.clock = self.canvas.create_text(115, 442, fill="white", font=("TkDefaultFont", 20))
 
-        hours = math.floor(self.result.hours)
-        minutes = (self.result.hours - hours) * 60.0
-        self.canvas.create_text(
-            600,
-            425,
-            anchor="nw",
-            font=("TkDefaultFont", 15),
-            text=f"Speed = {self.result.speed_kmph:.0f} kmph\n"
-            f"Flight Time =  {hours} Hours {int(minutes)} Minutes \n"
-            f"Range = {self.result.km:.0f} km",
-        )
+        self.canvas.create_text(600, 500, anchor="sw", font=("TkDefaultFont", 15), text=self.summary())
 
         self.fuel = FUEL_FULL
         self.time_passed = 0.0
         self.next_frame = None
+        # A plane that can't fly still burns its fuel trying, at full throttle
+        self.fuel_hours = self.result.hours if self.result.can_fly else FULL_THROTTLE_HOURS
         self.show_instruments()
-        if self.result.can_fly:
-            self.next_frame = self.timers.after(FRAME_MS, self.animate)
+        self.next_frame = self.timers.after(FRAME_MS, self.animate)
+
+    def summary(self):
+        if not self.result.can_fly:
+            return "This wing can't fly, even with a longer runway\nAll the fuel burned on the ground\nRange = 0 km"
+
+        hours = math.floor(self.result.hours)
+        minutes = (self.result.hours - hours) * 60.0
+        flight = (
+            f"Speed = {self.result.speed_kmph:.0f} kmph\n"
+            f"Flight Time =  {hours} Hours {int(minutes)} Minutes \n"
+            f"Range = {self.result.km:.0f} km"
+        )
+
+        if self.runway is None:
+            return f"Runway too short to take off!\nWith a far longer runway it could fly:\n{flight}"
+        if self.runway > RUNWAY_LENGTH:
+            needed = rounded_runway(self.runway)
+            return f"Runway too short to take off!\nWith a {needed:,} m runway it could fly:\n{flight}"
+        return flight
 
     def map_bands(self):
         """Which tenth of the range each map pixel falls in, or 10 if out of reach."""
@@ -104,10 +130,10 @@ class RangeWindow(tk.Toplevel):
 
     def animate(self):
         self.fuel -= FUEL_STEP
-        self.time_passed += self.result.hours / 500
+        self.time_passed += self.fuel_hours / 500
         self.show_instruments()
 
-        if self.fuel in BAND_REVEALS:
+        if self.result.can_fly and self.fuel in BAND_REVEALS:
             self.show_bands(BAND_REVEALS[self.fuel])
 
         if self.fuel > -FUEL_FULL:

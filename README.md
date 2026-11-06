@@ -20,12 +20,19 @@ Open **Wing Demo** from your applications menu, or run:
 ./wing-demo
 ```
 
+To trade accuracy against speed, add `--accuracy`. It scales the solver's grid and number of iterations, and the default is 1:
+
+```bash
+./wing-demo --accuracy 2     # finer, takes about 16 times as long
+./wing-demo --accuracy 0.5   # coarser, takes about a sixteenth of the time
+```
+
 ## Using the demo
 
-1. Pick a shape and use the sliders to design your wing.
-2. Press **Run Simulation** to see how air flows around it, then switch between **Flow** and **Pressure**.
-3. Press **Take off** to see if the plane leaves the runway, with the cockpit dashboard alongside.
-4. Press **Range** to see how far it can fly on a tank of fuel.
+1. Use the sliders to design your wing.
+2. Press **2. Simulate** to see how air flows around it, with a bar for each CPU showing its load while it runs, then switch between **Flow** and **Pressure**.
+3. Press **3. Take off** to see if the plane leaves the runway, with the cockpit dashboard alongside.
+4. The range map then opens by itself to show how far it can fly on a tank of fuel. Press **4. Range** to see it again.
 5. Press **New Simulation** to try to do better.
 
 Each simulation is recorded in a daily log in `~/.local/share/wing-demo/`.
@@ -41,6 +48,7 @@ Each simulation is recorded in a daily log in `~/.local/share/wing-demo/`.
 | `app/flight.py` | Take-off and range physics. |
 | `app/takeoff_window.py` | Runway animation and dashboard. |
 | `app/range_window.py` | Range map. |
+| `app/cpu_window.py` | Load on each CPU while the solver runs, read from `/proc/stat`. |
 | `app/timers.py` | Timers that survive system clock changes. Use these rather than Tk's `after()`, which freezes if the clock steps backwards. |
 
 The solver uses up to 8 threads. Set `OMP_NUM_THREADS` to change this.
@@ -57,3 +65,5 @@ make -C solver
 Extracted from [Wee Archie](https://github.com/EPCCed/wee_archie), the EPCC outreach supercomputer. The original demo framework was written by Gordon Gibb and Alistair Grant, the CFD demo by Gordon Gibb and the artwork by Mirren White. Kara Moraw added enhancements under a PRACE Summer of HPC 2017 visit.
 
 Licensed under the BSD 3-Clause licence: see `LICENSE`, and `LICENSE-EPCC` for the licence of the original code.
+
+The RISC-V logo on the take-off screen is a trademark of RISC-V International.

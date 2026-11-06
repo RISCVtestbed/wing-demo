@@ -1,4 +1,5 @@
 """Wing design wind tunnel demo. Run this file to start the app."""
+import argparse
 import datetime
 import time
 import tkinter as tk
@@ -10,8 +11,8 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
 import simulation
+from cpu_window import CpuWindow
 from range_window import RangeWindow
-from simulation import AEROFOIL, ELLIPSE
 from takeoff_window import TakeoffWindow
 from timers import Timers
 
@@ -20,6 +21,16 @@ LOG_DIR = Path.home() / ".local" / "share" / "wing-demo"
 GREEN = "#00ff00"
 AMBER = "#ffbf00"
 RED = "#ff0000"
+
+HEADING_FONT = ("TkDefaultFont", 13, "bold")
+SIMULATE_COLOUR = "#6a3d9a"
+TAKEOFF_COLOUR = "#1b7f3b"
+RANGE_COLOUR = "#1f5fa8"
+FLASH_COLOUR = "#ffbf00"
+FLASH_MS = 500
+
+MIN_ACCURACY = 0.1
+MAX_ACCURACY = 4.0
 
 
 class RunLog:
@@ -47,21 +58,21 @@ class Slider:
         self.label.pack(anchor="w", pady=(8, 0))
         self.scale.pack(fill="x")
 
-    def pack_forget(self):
-        self.label.pack_forget()
-        self.scale.pack_forget()
-
 
 class WindTunnelApp:
-    def __init__(self, root):
+    def __init__(self, root, accuracy=1.0):
         self.root = root
+        self.accuracy = accuracy
         self.timers = Timers(root)
         self.log = RunLog().write
         self.solver = None
         self.results = None
         self.takeoff_window = None
         self.range_window = None
+        self.cpu_window = None
         self.started = 0.0
+        self.next_steps = []  # buttons not yet tried, the first of which flashes
+        self.flash_timer = None
 
         root.title("Windtunnel Simulator")
         root.protocol("WM_DELETE_WINDOW", self.close)
@@ -84,26 +95,18 @@ class WindTunnelApp:
     def build_setup_panel(self):
         self.setup = ttk.Frame(self.panel)
 
-        self.run_button = ttk.Button(self.setup, text="Run Simulation", command=self.start_simulation)
-        self.run_button.pack(fill="x", ipady=20)
+        self.heading(self.setup, "1. Design your wing")
 
-        self.shape = tk.IntVar(value=AEROFOIL)
-        shapes = ttk.LabelFrame(self.setup, text="Shape", padding=4)
-        shapes.pack(fill="x", pady=10)
-        self.shape_buttons = [
-            ttk.Radiobutton(shapes, text=text, value=value, variable=self.shape, command=self.show_shape_controls)
-            for text, value in (("Ellipse", ELLIPSE), ("Aerofoil", AEROFOIL))
-        ]
-        for button in self.shape_buttons:
-            button.pack(side="left", padx=4)
+        sliders = ttk.Frame(self.setup)
+        sliders.pack(fill="x", pady=(0, 20))
+        self.angle = Slider(sliders, -45, 45, 0, self.draw_shape)
+        self.camber = Slider(sliders, -30, 30, 0, self.draw_shape)
+        self.thickness = Slider(sliders, 0, 50, 10, self.draw_shape)
+        for slider in (self.angle, self.camber, self.thickness):
+            slider.pack()
 
-        self.sliders_frame = ttk.Frame(self.setup)
-        self.sliders_frame.pack(fill="x")
-        self.angle = Slider(self.sliders_frame, -45, 45, 0, self.draw_shape)
-        self.camber = Slider(self.sliders_frame, -30, 30, 0, self.draw_shape)
-        self.thickness = Slider(self.sliders_frame, 0, 50, 10, self.draw_shape)
-        self.axis_a = Slider(self.sliders_frame, 2, 10, 6, self.draw_shape)
-        self.axis_b = Slider(self.sliders_frame, 2, 10, 6, self.draw_shape)
+        self.heading(self.setup, "When you are happy with your wing:")
+        self.run_button = self.step_button(self.setup, "2. Simulate", SIMULATE_COLOUR, self.start_simulation)
 
         self.reset_button = ttk.Button(self.setup, text="Reset Options", command=self.reset)
         self.reset_button.pack(side="bottom", fill="x", ipady=20)
@@ -115,10 +118,10 @@ class WindTunnelApp:
     def build_results_panel(self):
         self.results_panel = ttk.Frame(self.panel)
 
-        self.takeoff_button = ttk.Button(self.results_panel, text="Take off", command=self.show_takeoff)
-        self.takeoff_button.pack(fill="x", ipady=20)
-        self.range_button = ttk.Button(self.results_panel, text="Range", command=self.show_range)
-        self.range_button.pack(fill="x", ipady=20, pady=(4, 0))
+        self.heading(self.results_panel, "Simulation finished!\nNow find out if your wing can fly:")
+
+        self.takeoff_button = self.step_button(self.results_panel, "3. Take off", TAKEOFF_COLOUR, self.show_takeoff)
+        self.range_button = self.step_button(self.results_panel, "4. Range", RANGE_COLOUR, self.show_range)
 
         self.view = tk.StringVar(value="flow")
         views = ttk.LabelFrame(self.results_panel, text="Variable", padding=4)
@@ -137,71 +140,91 @@ class WindTunnelApp:
             side="bottom", fill="x", ipady=20
         )
 
+    def heading(self, parent, text):
+        ttk.Label(parent, text=text, font=HEADING_FONT, justify="center", anchor="center", wraplength=250).pack(
+            fill="x", pady=(4, 10)
+        )
+
+    def step_button(self, parent, text, colour, command):
+        button = tk.Button(
+            parent,
+            text=text,
+            command=command,
+            font=("TkDefaultFont", 18, "bold"),
+            background=colour,
+            activebackground=colour,
+            foreground="white",
+            activeforeground="white",
+            borderwidth=3,
+        )
+        button.colour = colour
+        button.pack(fill="x", ipady=18, pady=(0, 6))
+        return button
+
+    def flash_next_step(self, lit=True):
+        """Flash the next button to press, so that nobody stops at the airflow plot."""
+        self.stop_flashing()
+        if self.next_steps:
+            button = self.next_steps[0]
+            colour = FLASH_COLOUR if lit else button.colour
+            button.configure(background=colour, activebackground=colour, foreground="black" if lit else "white")
+            self.flash_timer = self.timers.after(FLASH_MS, lambda: self.flash_next_step(not lit))
+
+    def stop_flashing(self):
+        if self.flash_timer is not None:
+            self.timers.cancel(self.flash_timer)
+            self.flash_timer = None
+        for button in (self.takeoff_button, self.range_button):
+            button.configure(background=button.colour, activebackground=button.colour, foreground="white")
+
+    def step_done(self, button):
+        if button in self.next_steps:
+            self.next_steps.remove(button)
+        self.flash_next_step()
+
     def show_setup(self):
+        self.next_steps = []
+        self.stop_flashing()
         for window in (self.takeoff_window, self.range_window):
             if window is not None:
                 window.close()
         self.results_panel.pack_forget()
         self.setup.pack(fill="both", expand=True)
-        self.show_shape_controls()
-
-    def show_shape_controls(self):
-        for slider in (self.angle, self.camber, self.thickness, self.axis_a, self.axis_b):
-            slider.pack_forget()
-        self.angle.pack()
-        if self.shape.get() == ELLIPSE:
-            self.axis_a.pack()
-            self.axis_b.pack()
-        else:
-            self.camber.pack()
-            self.thickness.pack()
         self.draw_shape()
 
     def reset(self):
         self.angle.scale.set(0)
-        self.axis_a.scale.set(6)
-        self.axis_b.scale.set(6)
         self.camber.scale.set(0)
         self.thickness.scale.set(2)
         self.draw_shape()
 
     def set_controls_enabled(self, enabled):
         state = "normal" if enabled else "disabled"
-        for widget in (self.run_button, self.reset_button, *self.shape_buttons):
+        for widget in (self.run_button, self.reset_button):
             widget.configure(state=state)
-        for slider in (self.angle, self.camber, self.thickness, self.axis_a, self.axis_b):
+        for slider in (self.angle, self.camber, self.thickness):
             slider.scale.configure(state=state)
 
     # ---- Shape preview ----
 
     def shape_values(self):
-        """The two shape parameters, in metres or as a fraction of the chord."""
-        if self.shape.get() == ELLIPSE:
-            return self.axis_a.value * 0.1, self.axis_b.value * 0.1
+        """Camber and thickness as a fraction of the chord."""
         return self.camber.value * 0.01, self.thickness.value * 0.01 + 0.1
 
     def draw_shape(self):
         if not hasattr(self, "progress"):
             return  # sliders fire while they are being built
 
-        first, second = self.shape_values()
+        camber, thickness = self.shape_values()
         degrees = self.angle.value
         self.angle.label.configure(text=f"Angle = {degrees} degrees")
+        self.camber.label.configure(text=f"Camber    = {camber:4.2f}")
+        self.thickness.label.configure(text=f"Thickness = {thickness:3.2f}")
 
         self.figure.clf()
         self.axes = self.figure.add_subplot(111)
 
-        if self.shape.get() == ELLIPSE:
-            self.axis_a.label.configure(text=f"Red Axis = {first:3.1f}")
-            self.axis_b.label.configure(text=f"Blue Axis = {second:3.1f}")
-            x, y = simulation.ellipse_outline(first, second)
-            self.axes.plot(*simulation.rotate(np.array([-first, first]), np.zeros(2), degrees), color="red")
-            self.axes.plot(*simulation.rotate(np.zeros(2), np.array([-second, second]), degrees), color="blue")
-        else:
-            self.camber.label.configure(text=f"Camber    = {first:4.2f}")
-            self.thickness.label.configure(text=f"Thickness = {second:3.2f}")
-            x, y = simulation.aerofoil_outline(first, second)
-
+        x, y = simulation.aerofoil_outline(camber, thickness)
         self.axes.plot(*simulation.rotate(x, y, degrees), color="black")
         self.axes.axis("equal")
         self.axes.set_xlim(-2.0, 2.0)
@@ -230,28 +253,30 @@ class WindTunnelApp:
             messagebox.showerror("Solver not found", "The solver has not been built. Please run ./install.sh")
             return
 
-        shape = self.shape.get()
-        first, second = self.shape_values()
+        camber, thickness = self.shape_values()
         alpha = float(self.angle.value)
 
         self.log("* New Simulation")
         self.log("    Time= " + datetime.datetime.now().strftime("%H:%M:%S"))
         self.log(f"    alpha= {alpha}")
-        if shape == AEROFOIL:
-            self.log(f"    m= {first}")
-            self.log(f"    t= {second}")
-        else:
-            self.log(f"    a= {first}")
-            self.log(f"    b= {second}")
+        self.log(f"    m= {camber}")
+        self.log(f"    t= {thickness}")
 
         self.draw_decomposition()
         self.set_controls_enabled(False)
         self.status.configure(text="Calculating airflow...")
         self.progress.pack(side="bottom", fill="x")
 
+        if self.cpu_window is not None:
+            self.cpu_window.close()
+        self.cpu_window = CpuWindow(self.root, self.timers, simulation.solver_threads(), self.cpu_closed)
+
         self.started = time.monotonic()
-        self.solver = simulation.SolverRun(simulation.solver_config(shape, alpha, first, second))
+        self.solver = simulation.SolverRun(simulation.solver_config(alpha, camber, thickness, self.accuracy))
         self.timers.after(50, self.check_solver)
+
+    def cpu_closed(self):
+        self.cpu_window = None
 
     def check_solver(self):
         if self.solver is None:
@@ -262,6 +287,8 @@ class WindTunnelApp:
             return
 
         solver, self.solver = self.solver, None
+        if self.cpu_window is not None:
+            self.cpu_window.finish()
         self.progress.pack_forget()
         self.status.configure(text="")
         self.set_controls_enabled(True)
@@ -284,6 +311,8 @@ class WindTunnelApp:
         self.setup.pack_forget()
         self.results_panel.pack(fill="both", expand=True)
         self.draw_results()
+        self.next_steps = [self.takeoff_button, self.range_button]
+        self.flash_next_step()
 
     # ---- Results ----
 
@@ -332,8 +361,15 @@ class WindTunnelApp:
 
     def show_takeoff(self):
         self.takeoff_button.configure(state="disabled")
+        self.step_done(self.takeoff_button)
         r = self.results
-        self.takeoff_window = TakeoffWindow(self.root, self.timers, r.c_lift_area, r.c_drag_area, self.log, self.takeoff_closed)
+        self.takeoff_window = TakeoffWindow(
+            self.root, self.timers, r.c_lift_area, r.c_drag_area, self.log, self.takeoff_closed, self.takeoff_finished
+        )
+
+    def takeoff_finished(self):
+        if self.range_window is None:
+            self.show_range()
 
     def takeoff_closed(self):
         self.takeoff_window = None
@@ -341,6 +377,7 @@ class WindTunnelApp:
 
     def show_range(self):
         self.range_button.configure(state="disabled")
+        self.step_done(self.range_button)
         r = self.results
         self.range_window = RangeWindow(self.root, self.timers, r.c_lift_area, r.c_drag_area, self.log, self.range_closed)
 
@@ -351,12 +388,31 @@ class WindTunnelApp:
     def close(self):
         if self.solver is not None:
             self.solver.cleanup()
+        if self.cpu_window is not None:
+            self.cpu_window.close()
         self.root.destroy()
 
 
+def accuracy_value(text):
+    value = float(text)
+    if not MIN_ACCURACY <= value <= MAX_ACCURACY:
+        raise argparse.ArgumentTypeError(f"must be between {MIN_ACCURACY} and {MAX_ACCURACY}")
+    return value
+
+
 def main():
+    parser = argparse.ArgumentParser(description="Design a wing and test it in a simulated wind tunnel.")
+    parser.add_argument(
+        "--accuracy",
+        type=accuracy_value,
+        default=1.0,
+        help="scales the solver's grid and iterations (default 1). Run time grows with the "
+        "fourth power of this, so 2 takes about 16 times as long and 0.5 about a sixteenth.",
+    )
+    args = parser.parse_args()
+
     root = tk.Tk()
-    WindTunnelApp(root)
+    WindTunnelApp(root, args.accuracy)
     root.mainloop()
 
 

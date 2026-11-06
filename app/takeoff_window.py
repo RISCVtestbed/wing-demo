@@ -4,7 +4,7 @@ import time
 import tkinter as tk
 from pathlib import Path
 
-from flight import TakeoffRun
+from flight import TakeoffRun, crash_message, takeoff_message
 
 ASSETS = Path(__file__).resolve().parent / "assets"
 
@@ -12,6 +12,8 @@ TICK_SECONDS = 0.01  # physics rate, independent of how fast we can draw
 FRAME_MS = 20  # how often we try to redraw
 MAX_TICKS_PER_FRAME = 20
 OFFSCREEN = (-1000, -1000)
+TAKEOFF_TEXT = "#1b7f3b"
+CRASH_TEXT = "#d00000"
 
 
 class Sprites:
@@ -110,7 +112,7 @@ class Dashboard(tk.Toplevel):
 
 
 class TakeoffWindow(tk.Toplevel):
-    def __init__(self, parent, timers, c_lift, c_drag, log, on_close):
+    def __init__(self, parent, timers, c_lift, c_drag, log, on_close, on_finished):
         super().__init__(parent)
         self.title("Runway")
         self.transient(parent)
@@ -120,7 +122,10 @@ class TakeoffWindow(tk.Toplevel):
         self.timers = timers
         self.log = log
         self.on_close = on_close
+        self.on_finished = on_finished
         self.run = TakeoffRun(c_lift, c_drag)
+        self.crash_message = crash_message(c_lift, c_drag)
+        self.message_shown = False
 
         self.canvas = tk.Canvas(self, width=1200, height=670, highlightthickness=0)
         self.canvas.pack()
@@ -162,6 +167,7 @@ class TakeoffWindow(tk.Toplevel):
 
         if self.run.finished:
             self.next_frame = None
+            self.on_finished()
         else:
             self.next_frame = self.timers.after(FRAME_MS, self.animate)
 
@@ -170,7 +176,12 @@ class TakeoffWindow(tk.Toplevel):
 
         if run.airborne and not run.crash:
             self.canvas.itemconfigure(self.plane, image=self.sprites.image("plane_climbing.png"))
+            if not self.message_shown:
+                self.show_message(takeoff_message(run.runway_used), TAKEOFF_TEXT)
         self.sprites.move(self.plane, (int(run.x), int(run.y)))
+
+        if run.crash and self.crash_message and not self.message_shown:
+            self.show_message(self.crash_message, CRASH_TEXT)
 
         if run.touchdown:
             self.sprites.move(self.splash, (int(run.splash_x), 510))
@@ -183,6 +194,16 @@ class TakeoffWindow(tk.Toplevel):
             self.sprites.move(self.water, (-25, int(run.waterlevel)))
 
         self.dashboard.show(run)
+
+    def show_message(self, message, colour):
+        text = self.canvas.create_text(600, 50, text=message, fill=colour, font=("TkDefaultFont", 22, "bold"))
+        left, top, right, bottom = self.canvas.bbox(text)
+        panel = self.canvas.create_rectangle(
+            left - 16, top - 10, right + 16, bottom + 10, fill="white", outline=colour, width=3
+        )
+        self.canvas.tag_lower(panel, text)
+        self.canvas.tag_raise(self.plane)  # the plane flies in front of the message
+        self.message_shown = True
 
     def log_outcome(self):
         if self.logged_outcome:

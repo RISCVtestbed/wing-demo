@@ -13,16 +13,12 @@ SOLVER = Path(__file__).resolve().parent.parent / "solver" / "windtunnel"
 # land on the slower AI cores. Set OMP_NUM_THREADS to override.
 MAX_THREADS = 8
 
-ELLIPSE = 1
-AEROFOIL = 2
-
-
-def ellipse_outline(a, b):
-    xu = np.linspace(-a, a, 100)
-    xd = np.flipud(xu)
-    yu = b * np.sqrt(1 - (xu / a) ** 2)
-    yd = -b * np.sqrt(1 - (xd / a) ** 2)
-    return np.append(xu, xd), np.append(yu, yd)
+# Solver cost at accuracy 1. The solver stops well short of full convergence and
+# the take-off and range physics are tuned to the results it gives at this point.
+# Scaling the iterations with the square of the grid keeps the solver at the same
+# point on a finer grid, so that a wing's lift and drag stay about the same.
+GRID_SIZE = 576
+ITERATIONS = 5000
 
 
 def aerofoil_outline(m, t):
@@ -57,15 +53,20 @@ def rotate(x, y, degrees):
     return x * np.cos(theta) - y * np.sin(theta), y * np.cos(theta) + x * np.sin(theta)
 
 
-def solver_config(shape, alpha, first, second):
-    """Solver input. first and second are a and b for an ellipse, m and t for an aerofoil."""
-    names = ("A", "B") if shape == ELLIPSE else ("M", "T")
+def solver_config(alpha, camber, thickness, accuracy=1.0):
+    """Solver input for an aerofoil. Run time grows with the fourth power of accuracy."""
+    grid = round(GRID_SIZE * accuracy)
     return (
+        "&GRIDPARAMS\n"
+        f"NX= {grid},\n"
+        f"NY= {grid},\n"
+        f"ITERATIONS= {round(ITERATIONS * accuracy**2)},\n"
+        "/\n"
         "&SHAPEPARAMS\n"
-        f"SHAPE= {shape},\n"
+        "SHAPE= 2,\n"
         f"ALPHA= {alpha:f},\n"
-        f"{names[0]}= {first:f},\n"
-        f"{names[1]}= {second:f},\n"
+        f"M= {camber:f},\n"
+        f"T= {thickness:f},\n"
         "/\n"
         "&VORTPARAMS\n"
         "VORTICITY= .FALSE.\n"
@@ -103,6 +104,11 @@ class Results:
         self.y = np.linspace(float(y[0]), float(y[-1]), int(ny))
 
 
+def solver_threads():
+    """How many threads the solver will use."""
+    return os.environ.get("OMP_NUM_THREADS", str(min(MAX_THREADS, os.cpu_count() or 1)))
+
+
 class SolverRun:
     """Runs the solver in the background. Poll finished(), then call results()."""
 
@@ -110,12 +116,13 @@ class SolverRun:
         self.workdir = tempfile.mkdtemp(prefix="wing-demo-")
         (Path(self.workdir) / "config.txt").write_text(config)
 
-        env = dict(os.environ)
-        env.setdefault("OMP_NUM_THREADS", str(min(MAX_THREADS, os.cpu_count() or 1)))
-
         self.output = open(Path(self.workdir) / "solver.log", "wb")
         self.process = subprocess.Popen(
-            [str(SOLVER)], cwd=self.workdir, env=env, stdout=self.output, stderr=subprocess.STDOUT
+            [str(SOLVER)],
+            cwd=self.workdir,
+            env={**os.environ, "OMP_NUM_THREADS": solver_threads()},
+            stdout=self.output,
+            stderr=subprocess.STDOUT,
         )
 
     def finished(self):

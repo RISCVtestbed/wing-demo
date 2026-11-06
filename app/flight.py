@@ -14,13 +14,16 @@ MASS = 50.0  # tonnes
 THRUST = 170.0  # kN
 FUEL = 250.0  # units of fuel in the tank
 MAX_FUEL_RATE = 0.02  # fuel used per second at maximum thrust
+FULL_THROTTLE_HOURS = FUEL / MAX_FUEL_RATE / 3600  # how long a full tank lasts
 
 EARTH_RADIUS = 6371.0  # km
-RUNWAY_LENGTH = 2000.0  # m
+RUNWAY_LENGTH = 4000.0  # m
+RUNWAY_PIXELS = 700.0  # length of the runway in the take-off picture
 WEIGHT = MASS * 10 * 1000.0  # N
 RHO = 1.225  # air density (kg/m^3)
 DT = 0.05  # simulated seconds per tick
-SCALE = 0.35  # metres to pixels
+SCALE = RUNWAY_PIXELS / RUNWAY_LENGTH  # metres to pixels
+LONGEST_RUNWAY = 10000.0  # m, a wing needing more than this counts as never taking off
 
 MAP_WIDTH = 1080
 MAP_HEIGHT = 540
@@ -44,9 +47,10 @@ class Raft:
 class TakeoffRun:
     """State of one take-off attempt. Call tick() until finished is True."""
 
-    def __init__(self, c_lift, c_drag):
+    def __init__(self, c_lift, c_drag, runway_length=RUNWAY_LENGTH):
         self.c_lift = c_lift
         self.c_drag = c_drag
+        self.runway_length = runway_length
 
         self.x = 1000.0
         self.y = 345.0
@@ -117,7 +121,7 @@ class TakeoffRun:
                 self.airborne = True
                 self.runway_used = (self.x0 - self.x) / SCALE
 
-        if (self.x0 - self.x) / SCALE > RUNWAY_LENGTH and not self.airborne:
+        if (self.x0 - self.x) / SCALE > self.runway_length and not self.airborne:
             self.crash = True
 
     def _fall(self):
@@ -159,6 +163,14 @@ class TakeoffRun:
         return self.waterlevel >= 500 and self.counter % 50 < 25
 
 
+def runway_needed(c_lift, c_drag):
+    """Metres of runway needed to lift off, or None if no sensible runway is long enough."""
+    run = TakeoffRun(c_lift, c_drag, runway_length=LONGEST_RUNWAY)
+    while not (run.airborne or run.crash or run.finished):
+        run.tick()
+    return run.runway_used
+
+
 RangeResult = namedtuple("RangeResult", "can_fly speed_kmph hours km")
 
 
@@ -177,6 +189,24 @@ def flight_range(c_lift, c_drag):
     seconds = FUEL / (efficiency * MAX_FUEL_RATE)
 
     return RangeResult(True, cruise * 3.6, seconds / 3600, seconds * cruise / 1000)
+
+
+def rounded_runway(metres):
+    """A runway length rounded up to a tidy number."""
+    return math.ceil(metres / 100) * 100
+
+
+def crash_message(c_lift, c_drag):
+    """What to tell a wing that ran out of runway, or None if no runway would help."""
+    needed = runway_needed(c_lift, c_drag)
+    if needed is None or not flight_range(c_lift, c_drag).can_fly:
+        return None
+    return f"Runway too short, your wing needs a runway of {rounded_runway(needed):,} meters"
+
+
+def takeoff_message(metres):
+    """What to tell a wing that lifted off after this much runway."""
+    return f"Take off in {round(metres):,} meters"
 
 
 def map_angles():

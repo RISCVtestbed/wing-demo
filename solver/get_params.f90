@@ -8,6 +8,15 @@ subroutine get_params()
     open(unit=10,file='config.txt',IOSTAT=io,STATUS='old')
     if (io .eq. 0) then
 
+        read(10,nml=gridparams,IOSTAT=io)
+        if (io .eq. 0) then
+            print*, "Read in grid parameters"
+        else
+            print*, "No grid parameters defined. Using defaults"
+        endif
+
+        rewind (unit=10)
+
         read(10,nml=shapeparams,IOSTAT=io)
         if (io .eq. 0) then
             print*, "Read in shape parameters"
@@ -38,5 +47,8 @@ subroutine get_params()
         print*, "WARNING: No parameter file found. Using default parameters."
     endif
     close(10)
+
+    dxx = (xrange(2)-xrange(1))/(real(nx)-1)
+    dyy = (yrange(2)-yrange(1))/(real(ny)-1)
 
 end subroutine

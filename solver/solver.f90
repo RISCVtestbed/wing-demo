@@ -18,7 +18,7 @@ subroutine solver()
 
     !$OMP PARALLEL
     !solve Laplace's equation for the irrotational flow profile (vorticity=0)
-    call poisson(5000)
+    call poisson(iterations)
     !$OMP END PARALLEL
 
     !get the vorticity on the surface of the object
