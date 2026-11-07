@@ -7,6 +7,7 @@ import tempfile
 import time
 import tkinter as tk
 import unittest
+import unittest.mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
@@ -189,7 +190,34 @@ class CpuLoad(unittest.TestCase):
         self.assertTrue(cpu_window.read_cpu_times())
 
 
+class Pinning(unittest.TestCase):
+    def test_one_cpu_per_thread(self):
+        cpus = simulation.solver_cpus()
+        self.assertEqual(len(cpus), int(simulation.solver_threads()))
+        self.assertEqual(simulation.solver_environment()["OMP_PLACES"].count("{"), len(cpus))
+
+    def test_users_own_placement_is_left_alone(self):
+        with unittest.mock.patch.dict("os.environ", {"OMP_PLACES": "cores"}):
+            self.assertIsNone(simulation.solver_cpus())
+            self.assertEqual(simulation.solver_environment()["OMP_PLACES"], "cores")
+
+    def test_too_many_threads_are_not_pinned(self):
+        with unittest.mock.patch.dict("os.environ", {"OMP_NUM_THREADS": "1000"}):
+            self.assertIsNone(simulation.solver_cpus())
+
+
 class CpuWindowTests(unittest.TestCase):
+    def test_shows_only_the_chosen_cpus(self):
+        try:
+            root = tk.Tk()
+        except tk.TclError:
+            self.skipTest("Needs a display")
+        self.addCleanup(root.destroy)
+        window = cpu_window.CpuWindow(root, Timers(root), "2", [0, 1], lambda: None)
+        self.assertEqual(list(window.bars), ["cpu0", "cpu1"])
+        window.sample()
+        window.close()
+
     def test_window_closes_itself_after_the_solver_finishes(self):
         try:
             root = tk.Tk()
@@ -197,7 +225,7 @@ class CpuWindowTests(unittest.TestCase):
             self.skipTest("Needs a display")
         self.addCleanup(root.destroy)
         closed = []
-        window = cpu_window.CpuWindow(root, Timers(root), "8", lambda: (closed.append(True), root.quit()))
+        window = cpu_window.CpuWindow(root, Timers(root), "8", None, lambda: (closed.append(True), root.quit()))
         window.timers.after(300, window.finish)
         root.mainloop()
         self.assertEqual(closed, [True])

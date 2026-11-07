@@ -37,7 +37,8 @@ def cpu_loads(before, after):
 
 
 class CpuWindow(tk.Toplevel):
-    def __init__(self, parent, timers, threads, on_close):
+    def __init__(self, parent, timers, threads, cpus, on_close):
+        """Shows the given CPU numbers, or every CPU if cpus is None."""
         super().__init__(parent)
         self.timers = timers
         self.on_close = on_close
@@ -48,12 +49,22 @@ class CpuWindow(tk.Toplevel):
         self.geometry(f"+{parent.winfo_rootx() + 290}+{parent.winfo_rooty() + 30}")
 
         self.times = read_cpu_times()
+        if cpus is not None:
+            wanted = {f"cpu{cpu}" for cpu in cpus}
+            self.times = {name: times for name, times in self.times.items() if name in wanted}
+        self.names = list(self.times)
         self.columns = min(len(self.times), MAX_COLUMNS)
         rows = -(-len(self.times) // self.columns)
         cell_width = BAR_WIDTH + GAP
         cell_height = BAR_HEIGHT + 2 * LABEL_HEIGHT
 
-        self.caption = tk.Label(self, text=f"Load on each CPU: simulating on {threads} threads...", font=("TkDefaultFont", 13, "bold"))
+        if cpus is None:
+            running = f"Load on each CPU: simulating on {threads} threads..."
+            self.finished_text = "Load on each CPU: simulation finished"
+        else:
+            running = f"Load on the {len(cpus)} CPUs running the simulation..."
+            self.finished_text = f"Load on the {len(cpus)} CPUs: simulation finished"
+        self.caption = tk.Label(self, text=running, font=("TkDefaultFont", 13, "bold"))
         self.caption.pack(pady=(8, 0))
         self.canvas = tk.Canvas(
             self,
@@ -81,7 +92,8 @@ class CpuWindow(tk.Toplevel):
         self.next_sample = self.timers.after(SAMPLE_MS, self.sample)
 
     def sample(self):
-        times = read_cpu_times()
+        everything = read_cpu_times()
+        times = {name: everything[name] for name in self.names if name in everything}
         loads = cpu_loads(self.times, times)
         self.times = times
 
@@ -94,7 +106,7 @@ class CpuWindow(tk.Toplevel):
 
     def finish(self):
         """The solver has stopped: show the load falling, then close."""
-        self.caption.configure(text="Load on each CPU: simulation finished")
+        self.caption.configure(text=self.finished_text)
         self.hold_timer = self.timers.after(HOLD_MS, self.close)
 
     def close(self):

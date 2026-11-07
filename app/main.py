@@ -269,7 +269,9 @@ class WindTunnelApp:
 
         if self.cpu_window is not None:
             self.cpu_window.close()
-        self.cpu_window = CpuWindow(self.root, self.timers, simulation.solver_threads(), self.cpu_closed)
+        self.cpu_window = CpuWindow(
+            self.root, self.timers, simulation.solver_threads(), simulation.solver_cpus(), self.cpu_closed
+        )
 
         self.started = time.monotonic()
         self.solver = simulation.SolverRun(simulation.solver_config(alpha, camber, thickness, self.accuracy))

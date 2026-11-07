@@ -30,7 +30,7 @@ To trade accuracy against speed, add `--accuracy`. It scales the solver's grid a
 ## Using the demo
 
 1. Use the sliders to design your wing.
-2. Press **2. Simulate** to see how air flows around it, with a bar for each CPU showing its load while it runs, then switch between **Flow** and **Pressure**.
+2. Press **2. Simulate** to see how air flows around it, with a bar for each CPU it runs on showing its load, then switch between **Flow** and **Pressure**.
 3. Press **3. Take off** to see if the plane leaves the runway, with the cockpit dashboard underneath.
 4. The range map then opens by itself to show how far it can fly on a tank of fuel. Press **4. Range** to see it again.
 5. Press **New Simulation** to try to do better.
@@ -48,10 +48,10 @@ Each simulation is recorded in a daily log in `~/.local/share/wing-demo/`.
 | `app/flight.py` | Take-off and range physics. |
 | `app/takeoff_window.py` | Runway animation and dashboard. |
 | `app/range_window.py` | Range map. |
-| `app/cpu_window.py` | Load on each CPU while the solver runs, read from `/proc/stat`. |
+| `app/cpu_window.py` | Load on the solver's CPUs while it runs, read from `/proc/stat`. |
 | `app/timers.py` | Timers that survive system clock changes. Use these rather than Tk's `after()`, which freezes if the clock steps backwards. |
 
-The solver uses up to 8 threads. Set `OMP_NUM_THREADS` to change this.
+The solver uses up to 8 threads, each pinned to its own CPU so the load window can show just those CPUs. Set `OMP_NUM_THREADS` to change the number of threads, or `OMP_PLACES` to choose your own placement (the window then shows every CPU).
 
 To run the tests, from this folder:
 

@@ -109,6 +109,32 @@ def solver_threads():
     return os.environ.get("OMP_NUM_THREADS", str(min(MAX_THREADS, os.cpu_count() or 1)))
 
 
+def solver_cpus():
+    """CPUs that the solver's threads are pinned to, one thread on each.
+
+    Pinning stops Linux moving threads around, so the CPU load window can show
+    just these CPUs. Returns None, and leaves placement to OpenMP, if
+    OMP_PLACES is set or there are more threads than CPUs.
+    """
+    if "OMP_PLACES" in os.environ:
+        return None
+    try:
+        threads = int(solver_threads())
+    except ValueError:
+        return None
+    cpus = sorted(os.sched_getaffinity(0))
+    return cpus[:threads] if threads <= len(cpus) else None
+
+
+def solver_environment():
+    env = {**os.environ, "OMP_NUM_THREADS": solver_threads()}
+    cpus = solver_cpus()
+    if cpus is not None:
+        env["OMP_PLACES"] = ",".join(f"{{{cpu}}}" for cpu in cpus)
+        env["OMP_PROC_BIND"] = "close"
+    return env
+
+
 class SolverRun:
     """Runs the solver in the background. Poll finished(), then call results()."""
 
@@ -120,7 +146,7 @@ class SolverRun:
         self.process = subprocess.Popen(
             [str(SOLVER)],
             cwd=self.workdir,
-            env={**os.environ, "OMP_NUM_THREADS": solver_threads()},
+            env=solver_environment(),
             stdout=self.output,
             stderr=subprocess.STDOUT,
         )
