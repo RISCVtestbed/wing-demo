@@ -31,7 +31,7 @@ To trade accuracy against speed, add `--accuracy`. It scales the solver's grid a
 
 1. Use the sliders to design your wing.
 2. Press **2. Simulate** to see how air flows around it, with a bar for each CPU showing its load while it runs, then switch between **Flow** and **Pressure**.
-3. Press **3. Take off** to see if the plane leaves the runway, with the cockpit dashboard alongside.
+3. Press **3. Take off** to see if the plane leaves the runway, with the cockpit dashboard underneath.
 4. The range map then opens by itself to show how far it can fly on a tank of fuel. Press **4. Range** to see it again.
 5. Press **New Simulation** to try to do better.
 

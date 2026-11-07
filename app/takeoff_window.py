@@ -12,6 +12,7 @@ TICK_SECONDS = 0.01  # physics rate, independent of how fast we can draw
 FRAME_MS = 20  # how often we try to redraw
 MAX_TICKS_PER_FRAME = 20
 OFFSCREEN = (-1000, -1000)
+DASHBOARD_SURROUND = "#f2f1f0"  # matches the corners of the dashboard picture
 TAKEOFF_TEXT = "#1b7f3b"
 CRASH_TEXT = "#d00000"
 
@@ -63,15 +64,13 @@ class Needle:
             self.canvas.coords(self.item, *self.centre, *end)
 
 
-class Dashboard(tk.Toplevel):
-    def __init__(self, parent, critical_speed):
-        super().__init__(parent)
-        self.title("Dashboard")
-        self.transient(parent)
-        self.resizable(False, False)
-        self.protocol("WM_DELETE_WINDOW", lambda: None)  # closes with the runway window
+class Dashboard(tk.Frame):
+    """The cockpit instruments, shown under the runway in the same window."""
 
-        self.canvas = tk.Canvas(self, width=840, height=270, highlightthickness=0)
+    def __init__(self, parent, critical_speed):
+        super().__init__(parent, background=DASHBOARD_SURROUND)
+
+        self.canvas = tk.Canvas(self, width=840, height=270, highlightthickness=0, background=DASHBOARD_SURROUND)
         self.canvas.pack()
         self.sprites = Sprites(self.canvas)
 
@@ -137,22 +136,16 @@ class TakeoffWindow(tk.Toplevel):
         self.water = self.sprites.add("water.png")
         self.rafts = [self.sprites.add("raft.png") for _ in self.run.rafts]
 
-        self.geometry("+0+0")
+        # Part of this window, so that no window manager can put it over the runway
         self.dashboard = Dashboard(self, self.run.critical_speed)
-        self.place_dashboard()
+        self.dashboard.pack(fill="x")
+        self.geometry("+0+0")
 
         self.logged_outcome = False
         self.ticks = 0
         self.frames = 0
         self.started = time.monotonic()
         self.next_frame = self.timers.after(FRAME_MS, self.animate)
-
-    def place_dashboard(self):
-        """Under the runway window if there is room, else the bottom of the screen."""
-        self.update_idletasks()
-        top = min(self.winfo_rooty() + 700, self.winfo_screenheight() - 300)
-        left = max(0, (min(self.winfo_screenwidth(), 1200) - 840) // 2)
-        self.dashboard.geometry(f"+{left}+{max(0, top)}")
 
     def animate(self):
         due = int((time.monotonic() - self.started) / TICK_SECONDS) - self.ticks
